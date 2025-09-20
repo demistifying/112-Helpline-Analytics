@@ -17,7 +17,7 @@ from modules.analysis import (
     agg_calls_by_day, agg_calls_by_hour, category_distribution, compute_kpis,
     interpret_time_series, interpret_hourly_distribution
 )
-from modules.mapping import pydeck_points_map, pydeck_heatmap, pydeck_hexbin_map
+from modules.mapping import pydeck_points_map, pydeck_heatmap
 from modules.festivals_ics import fetch_festivals_from_ics
 from modules.festivals_utils import filter_significant_festivals
 from modules.ui_calendar import render_month_calendar
@@ -219,7 +219,7 @@ def main():
         # Mapping
         # -------------------------
         st.markdown("## Spatial Mapping")
-        tab1, tab2, tab3 = st.tabs(["Points Map", "Hotspot Heatmap", "Hexbin Map"])
+        tab1, tab2= st.tabs(["Points Map", "Hotspot Heatmap"])
 
         with tab1:
             deck_points = pydeck_points_map(df_filtered)
@@ -234,13 +234,6 @@ def main():
                 st.pydeck_chart(deck_heat)
             else:
                 st.info("No valid coordinates to plot heatmap.")
-
-        with tab3:
-            deck_hex = pydeck_hexbin_map(df_filtered)
-            if deck_hex:
-                st.pydeck_chart(deck_hex)
-            else:
-                st.info("No valid coordinates to plot hexbin hotspots.")
 
         # -------------------------
         # Time series (highlight significant festivals with hover-over regions)
