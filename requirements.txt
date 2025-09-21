@@ -1,13 +1,13 @@
-# requirements.txt
-streamlit
-pandas
-plotly
-plotly-express
-pydeck
-streamlit-folium
-firebase-admin
-streamlit-option-menu
-ics
-# Add the following two lines
-prophet
-xgboost
+streamlit>=1.28.0
+streamlit-option-menu>=0.3.6
+firebase-admin>=6.2.0
+pandas>=1.5.0
+plotly>=5.15.0
+streamlit-folium>=0.13.0
+pydeck>=0.8.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+prophet>=1.1.4
+xgboost>=1.7.0
+uuid
+datetime

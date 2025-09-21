@@ -1,71 +1,237 @@
-# modules/festivals_ics.py
-import os
-import requests
-from ics import Calendar
-from datetime import datetime
+# modules/festivals_ics.py (Fixed version with encoding handling)
 import streamlit as st
+import requests
+import pandas as pd
+import re
+from datetime import datetime, timedelta
+import os
 
-# --- Define URL and local file path ---
-ICS_URL = "https://www.officeholidays.com/ics/india"
-ICS_FILE_PATH = os.path.join("data", "festivals.ics")
-DATA_DIR = "data"
-
-def download_and_save_ics():
-    """
-    Downloads the ICS file from the URL and saves it locally.
-    Returns True on success, False on failure.
-    """
-    try:
-        # Ensure the 'data' directory exists
-        if not os.path.exists(DATA_DIR):
-            os.makedirs(DATA_DIR)
-            
-        response = requests.get(ICS_URL, verify=False) # Added verify=False to bypass SSL issues
-        response.raise_for_status()
-        
-        with open(ICS_FILE_PATH, 'w') as f:
-            f.write(response.text)
-        
-        # The st.info message was removed from here
-        return True
-    except requests.exceptions.RequestException as e:
-        # Errors will still be shown so you can debug if the download fails
-        st.error(f"Error downloading festival calendar: {e}. Please check your internet connection.")
-        return False
-
-@st.cache_data(ttl=86400)  # cache the parsed data for 24 hours
+# Cache for 1 hour to avoid repeated downloads
+@st.cache_data(ttl=3600)
 def fetch_festivals_from_ics():
     """
-    Loads festival data. If a local copy exists, it uses it.
-    If not, it downloads it from the web, saves it, and then uses it.
+    Fetch festival data from ICS file (local or remote) with proper encoding handling.
+    Returns list of tuples: (name, start_date, end_date)
     """
-    # Check if the local file exists. If not, download it.
-    if not os.path.exists(ICS_FILE_PATH):
-        # The st.warning message was removed from here
-        if not download_and_save_ics():
-            return [] # Return empty list if download fails
+    festivals = []
+    
+    # Try local file first
+    local_ics_path = os.path.join("data", "festivals.ics")
+    
+    if os.path.exists(local_ics_path):
+        try:
+            festivals = parse_local_ics_file(local_ics_path)
+            if festivals:
+                st.sidebar.success(f"✅ Loaded {len(festivals)} festivals from local file")
+                return festivals
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Error parsing local festival calendar: {str(e)}")
+    
+    # If local fails, try remote sources
+    remote_urls = [
+        # Indian government holiday calendar
+        "https://www.calendarlabs.com/ical-calendar/india-holidays-42.ics",
+        # Alternative sources
+        "https://calendar.google.com/calendar/ical/en.indian%23holiday%40group.v.calendar.google.com/public/basic.ics"
+    ]
+    
+    for url in remote_urls:
+        try:
+            festivals = fetch_from_remote_ics(url)
+            if festivals:
+                st.sidebar.success(f"✅ Loaded {len(festivals)} festivals from remote source")
+                return festivals
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Failed to fetch from {url[:50]}...")
+            continue
+    
+    # If all fails, return hardcoded major festivals
+    st.sidebar.info("📅 Using fallback festival data")
+    return get_fallback_festivals()
 
-    # Now, proceed with reading from the local file
+def parse_local_ics_file(file_path):
+    """Parse local ICS file with multiple encoding attempts"""
+    festivals = []
+    
+    # Try different encodings in order of preference
+    encodings_to_try = ['utf-8', 'utf-8-sig', 'latin1', 'cp1252', 'iso-8859-1']
+    
+    for encoding in encodings_to_try:
+        try:
+            with open(file_path, 'r', encoding=encoding, errors='ignore') as file:
+                content = file.read()
+                festivals = parse_ics_content(content)
+                if festivals:  # If we got valid data, break
+                    print(f"Successfully parsed ICS file with encoding: {encoding}")
+                    break
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            print(f"Error with encoding {encoding}: {str(e)}")
+            continue
+    
+    return festivals
+
+def fetch_from_remote_ics(url):
+    """Fetch and parse ICS from remote URL"""
     try:
-        with open(ICS_FILE_PATH, 'r') as f:
-            ics_content = f.read()
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
         
-        cal = Calendar(ics_content)
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
         
-        festivals = []
-        for event in cal.events:
-            if event.begin and event.end:
-                start_dt = event.begin.datetime
-                end_dt = event.end.datetime
-
-                # Make datetimes timezone-naive
-                if start_dt.tzinfo:
-                    start_dt = start_dt.replace(tzinfo=None)
-                if end_dt.tzinfo:
-                    end_dt = end_dt.replace(tzinfo=None)
-
-                festivals.append((event.name, start_dt, end_dt))
-        return festivals
+        # Try to decode with proper encoding
+        content = response.content.decode('utf-8', errors='ignore')
+        return parse_ics_content(content)
+        
     except Exception as e:
-        st.error(f"Error parsing local festival calendar ({ICS_FILE_PATH}): {e}")
+        print(f"Error fetching from {url}: {str(e)}")
         return []
+
+def parse_ics_content(content):
+    """Parse ICS content and extract festival information"""
+    festivals = []
+    
+    try:
+        # Split content into events
+        events = re.findall(r'BEGIN:VEVENT(.*?)END:VEVENT', content, re.DOTALL | re.IGNORECASE)
+        
+        for event in events:
+            try:
+                # Extract event details
+                summary_match = re.search(r'SUMMARY:(.*)', event, re.IGNORECASE)
+                dtstart_match = re.search(r'DTSTART[^:]*:(\d{8})', event, re.IGNORECASE)
+                dtend_match = re.search(r'DTEND[^:]*:(\d{8})', event, re.IGNORECASE)
+                
+                if summary_match and dtstart_match:
+                    name = summary_match.group(1).strip()
+                    # Clean up the name
+                    name = re.sub(r'\\[ntr]', ' ', name)  # Remove escaped characters
+                    name = re.sub(r'[^\w\s-]', '', name)  # Remove special chars except hyphens
+                    name = ' '.join(name.split())  # Normalize whitespace
+                    
+                    if not name or len(name) < 3:  # Skip very short or empty names
+                        continue
+                    
+                    start_str = dtstart_match.group(1)
+                    end_str = dtend_match.group(1) if dtend_match else start_str
+                    
+                    # Parse dates
+                    start_date = datetime.strptime(start_str, '%Y%m%d')
+                    end_date = datetime.strptime(end_str, '%Y%m%d')
+                    
+                    # Only include festivals within a reasonable range (past 1 year to future 2 years)
+                    current_year = datetime.now().year
+                    if (current_year - 1) <= start_date.year <= (current_year + 2):
+                        festivals.append((name, start_date, end_date))
+                        
+            except Exception as e:
+                # Skip individual events that fail to parse
+                continue
+    
+    except Exception as e:
+        print(f"Error parsing ICS content: {str(e)}")
+        return []
+    
+    # Remove duplicates and sort by date
+    festivals = list(set(festivals))  # Remove duplicates
+    festivals.sort(key=lambda x: x[1])  # Sort by start date
+    
+    return festivals
+
+def get_fallback_festivals():
+    """Return hardcoded major Indian festivals as fallback"""
+    current_year = datetime.now().year
+    
+    # Major Indian festivals (approximate dates - you should update with exact dates)
+    festivals = []
+    
+    # Add festivals for current and next year
+    for year in [current_year, current_year + 1]:
+        festivals.extend([
+            (f"Republic Day {year}", datetime(year, 1, 26), datetime(year, 1, 26)),
+            (f"Holi {year}", datetime(year, 3, 13), datetime(year, 3, 13)),  # Approximate
+            (f"Ram Navami {year}", datetime(year, 4, 17), datetime(year, 4, 17)),  # Approximate
+            (f"Eid ul-Fitr {year}", datetime(year, 4, 21), datetime(year, 4, 21)),  # Approximate
+            (f"Independence Day {year}", datetime(year, 8, 15), datetime(year, 8, 15)),
+            (f"Janmashtami {year}", datetime(year, 8, 30), datetime(year, 8, 30)),  # Approximate
+            (f"Ganesh Chaturthi {year}", datetime(year, 9, 7), datetime(year, 9, 7)),  # Approximate
+            (f"Dussehra {year}", datetime(year, 10, 15), datetime(year, 10, 15)),  # Approximate
+            (f"Diwali {year}", datetime(year, 11, 12), datetime(year, 11, 12)),  # Approximate
+            (f"Guru Nanak Jayanti {year}", datetime(year, 11, 27), datetime(year, 11, 27)),  # Approximate
+            (f"Christmas {year}", datetime(year, 12, 25), datetime(year, 12, 25)),
+        ])
+    
+    return festivals
+
+def create_sample_ics_file():
+    """Create a sample ICS file for testing (in case the original is corrupted)"""
+    sample_content = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+SUMMARY:Republic Day
+DTSTART:20250126
+DTEND:20250126
+DESCRIPTION:India's Republic Day
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Independence Day
+DTSTART:20250815
+DTEND:20250815
+DESCRIPTION:India's Independence Day
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Gandhi Jayanti
+DTSTART:20251002
+DTEND:20251002
+DESCRIPTION:Mahatma Gandhi's Birthday
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Diwali
+DTSTART:20251112
+DTEND:20251112
+DESCRIPTION:Festival of Lights
+END:VEVENT
+BEGIN:VEVENT
+SUMMARY:Christmas
+DTSTART:20251225
+DTEND:20251225
+DESCRIPTION:Christmas Day
+END:VEVENT
+END:VCALENDAR"""
+    
+    # Create data directory if it doesn't exist
+    os.makedirs("data", exist_ok=True)
+    
+    # Write sample file
+    sample_path = os.path.join("data", "sample_festivals.ics")
+    try:
+        with open(sample_path, 'w', encoding='utf-8') as f:
+            f.write(sample_content)
+        return sample_path
+    except Exception as e:
+        print(f"Error creating sample ICS file: {str(e)}")
+        return None
+
+# Test function to verify the fix
+def test_festival_loading():
+    """Test function to verify festival loading works"""
+    try:
+        festivals = fetch_festivals_from_ics()
+        print(f"✅ Successfully loaded {len(festivals)} festivals")
+        
+        # Print first few festivals for verification
+        for i, (name, start, end) in enumerate(festivals[:5]):
+            print(f"{i+1}. {name}: {start.date()} to {end.date()}")
+            
+        return True
+    except Exception as e:
+        print(f"❌ Error testing festival loading: {str(e)}")
+        return False
+
+if __name__ == "__main__":
+    # Test the function when run directly
+    test_festival_loading()

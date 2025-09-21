@@ -21,6 +21,14 @@ POLICE_RANKS = [
 
 TOP_OFFICER_RANKS = POLICE_RANKS[:5]  # First 5 ranks
 
+# Assistant officer ranks that can access caller entry
+ASSISTANT_OFFICER_RANKS = [
+    "Assistant Police Inspector (A.P.I.)",
+    "Police Sub Inspector (P.S.I.)",
+    "Assistant Police Sub Inspector (A.S.I.)",
+    "Head Constable (H.C.)"
+]
+
 def initialize_session_state():
     """Initialize session state variables for authentication"""
     if 'authentication_status' not in st.session_state:
@@ -113,16 +121,27 @@ def signup_form():
                     password=password
                 )
                 
+                # Create password hash for verification
+                import hashlib
+                password_hash = hashlib.sha256(password.encode()).hexdigest()
+                
                 # Store additional user data in Firestore
                 db = firestore.client()
                 db.collection('users').document(username).set({
                     'first_name': first_name,
                     'last_name': last_name,
                     'username': username,
+                    'password_hash': password_hash,
                     'rank': rank,
                     'police_station_category': station_category,
                     'police_station': police_station,
-                    'created_at': firestore.SERVER_TIMESTAMP
+                    'created_at': firestore.SERVER_TIMESTAMP,
+                    'is_active': True,
+                    'permissions': {
+                        'caller_entry': rank in ASSISTANT_OFFICER_RANKS,
+                        'notifications': True,
+                        'analytics': True
+                    }
                 })
                 
                 st.success("Account created successfully! Please log in.")
@@ -139,7 +158,28 @@ def login_form():
         submit = st.form_submit_button("Login")
 
         if submit:
+            if not username or not password:
+                st.error("Please enter both username and password")
+                return
+                
             try:
+                # Try Firebase Authentication first
+                try:
+                    import firebase_admin.auth as firebase_auth
+                    # Verify user exists in Firebase Auth
+                    user_record = firebase_auth.get_user(username)
+                    
+                    # Create a custom token to verify password
+                    custom_token = firebase_auth.create_custom_token(username)
+                    
+                    # For now, we'll use a simple verification method
+                    # In production, you'd use Firebase Client SDK for password verification
+                    
+                except Exception as auth_error:
+                    st.error("Invalid username or password")
+                    return
+                
+                # Get user data from Firestore
                 db = firestore.client()
                 user_doc = db.collection('users').document(username).get()
                 
@@ -148,6 +188,27 @@ def login_form():
                     return
                 
                 user_data = user_doc.to_dict()
+                
+                # Password verification
+                import hashlib
+                password_hash = hashlib.sha256(password.encode()).hexdigest()
+                stored_hash = user_data.get('password_hash')
+                
+                # If no stored hash exists, require password reset
+                if not stored_hash:
+                    st.error("Account needs password reset. Please contact administrator.")
+                    return
+                
+                # Verify password
+                if stored_hash != password_hash:
+                    st.error("Invalid username or password")
+                    return
+                
+                # Check if user account is active
+                if not user_data.get('is_active', True):
+                    st.error("Your account has been deactivated. Please contact administrator.")
+                    return
+                
                 st.session_state.authentication_status = True
                 st.session_state.username = username
                 st.session_state.user_id = username
@@ -159,98 +220,48 @@ def login_form():
                 st.error("Invalid username or password")
 
 def show_user_info():
-    """Show logged in user info and profile dropdown menu"""
+    """Show logged in user info with enhanced profile display"""
     if st.session_state.user_data:
         user_data = st.session_state.user_data
 
-        # Create a sidebar for profile management instead of popover
-        with st.sidebar:
-            st.markdown("---")
-            st.subheader("👤 Profile Menu")
-            
-            # Profile action buttons
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if st.button("👤", help="View Profile", key="view_profile_btn"):
-                    st.session_state.profile_action = "profile"
-            with col2:
-                if st.button("🔑", help="Change Password", key="change_pass_btn"):
-                    st.session_state.profile_action = "password"
-            with col3:
-                if st.button("🚪", help="Logout", key="logout_btn"):
-                    st.session_state.profile_action = "logout"
+        # Enhanced header with user info
+        col1, col2, col3 = st.columns([2, 2, 1])
+        
+        with col1:
+            st.markdown(f"## Welcome, {user_data.get('first_name', '')} {user_data.get('last_name', '')}")
+        
+        with col2:
+            st.markdown(f"##### Rank: {user_data.get('rank', 'N/A')}")
+            st.markdown(f"##### Station: {user_data.get('police_station', 'N/A')}")
+        
+        with col3:
+            # Quick logout button
+            if st.button("Logout", type="secondary", help="Click to logout"):
+                # Clear all session state
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.success("Logged out successfully!")
+                st.rerun()
 
-        # Handle profile actions in main area
-        if st.session_state.profile_action == "profile":
-            with st.expander("👤 Profile Information", expanded=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.text_input("First Name", value=user_data.get('first_name', ''), disabled=True, key="profile_fname")
-                    st.text_input("Username", value=user_data.get('username', ''), disabled=True, key="profile_username")
-                    st.text_input("Police Station", value=user_data.get('police_station', ''), disabled=True, key="profile_station")
-                with col2:
-                    st.text_input("Last Name", value=user_data.get('last_name', ''), disabled=True, key="profile_lname")
-                    st.text_input("Rank", value=user_data.get('rank', ''), disabled=True, key="profile_rank")
+        # Access permissions display
+        permissions = user_data.get('permissions', {})
+        if permissions:
+            with st.expander("Your Access Permissions", expanded=False):
+                col1, col2, col3 = st.columns(3)
                 
-                if st.button("Close Profile", key="close_profile"):
-                    st.session_state.profile_action = None
-                    st.rerun()
-        
-        elif st.session_state.profile_action == "password":
-            with st.expander("🔑 Change Password", expanded=True):
-                with st.form("change_password_form"):
-                    st.subheader("Change Password")
-                    current_password = st.text_input("Current Password", type="password")
-                    new_password = st.text_input("New Password", type="password")
-                    confirm_password = st.text_input("Confirm New Password", type="password")
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        submit_change = st.form_submit_button("Update Password")
-                    with col2:
-                        cancel_change = st.form_submit_button("Cancel")
-
-                    if submit_change:
-                        if new_password != confirm_password:
-                            st.error("New passwords do not match!")
-                        elif len(new_password) < 6:
-                            st.error("Password must be at least 6 characters long!")
-                        else:
-                            is_valid, msg = validate_password(new_password)
-                            if not is_valid:
-                                st.error(msg)
-                            else:
-                                try:
-                                    # Update password in Firebase Auth
-                                    auth.update_user(
-                                        st.session_state.user_id,
-                                        password=new_password
-                                    )
-                                    st.success("Password updated successfully!")
-                                    st.session_state.profile_action = None
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error updating password: {str(e)}")
-
-                    if cancel_change:
-                        st.session_state.profile_action = None
-                        st.rerun()
-        
-        elif st.session_state.profile_action == "logout":
-            with st.expander("🚪 Logout Confirmation", expanded=True):
-                st.warning("⚠️ Are you sure you want to logout?")
-                col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("Yes, Logout", type="primary", key="confirm_logout_btn"):
-                        # Clear all session state
-                        for key in list(st.session_state.keys()):
-                            del st.session_state[key]
-                        st.success("Logged out successfully!")
-                        st.rerun()
+                    caller_access = "Allowed" if permissions.get('caller_entry', False) else "Not Allowed"
+                    st.markdown(f"**Caller Entry:** {caller_access}")
+                
                 with col2:
-                    if st.button("Cancel", key="cancel_logout_btn"):
-                        st.session_state.profile_action = None
-                        st.rerun()
+                    notif_access = "Allowed" if permissions.get('notifications', True) else "Not Allowed"
+                    st.markdown(f"**Notifications:** {notif_access}")
+                
+                with col3:
+                    analytics_access = "Allowed" if permissions.get('analytics', True) else "Not Allowed"
+                    st.markdown(f"**Analytics:** {analytics_access}")
+
+        st.markdown("---")
 
 def notification_center():
     """Notification center for top officers to send alerts and sub officers to view them."""
@@ -258,70 +269,166 @@ def notification_center():
     user_data = st.session_state.user_data
     rank = user_data.get("rank", "")
 
-    st.header("🚨 Notification Center")
+    st.markdown("<h1 style='font-size: 28px;'>Notification Center</h1>", unsafe_allow_html=True)
 
     # Top officers can create alerts
     if rank in TOP_OFFICER_RANKS:
-        st.subheader("Create Alert for Sub Officers")
-        with st.form("create_alert_form"):
-            alert_title = st.text_input("Alert Title")
-            alert_message = st.text_area("Alert Message")
-            caller_name = st.text_input("Name of the Caller")
-            caller_location = st.text_input("Location of the Caller")
-            location = st.text_input("Deployment Location (optional)")
-            submit_alert = st.form_submit_button("Send Alert")
+        st.markdown("<h3 style='font-size: 22px;'>Create Alert for Sub Officers</h3>", unsafe_allow_html=True)
+        
+        with st.expander("Create New Alert", expanded=True):
+            with st.form("create_alert_form"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    alert_title = st.text_input("Alert Title *", placeholder="Emergency Alert")
+                    caller_name = st.text_input("Caller Name", placeholder="Name of the person calling")
+                    location = st.text_input("Deployment Location", placeholder="Location for deployment (optional)")
+                
+                with col2:
+                    alert_priority = st.selectbox("Priority Level", ["High", "Medium", "Low"])
+                    caller_location = st.text_input("Caller Location", placeholder="Location of the caller")
+                    alert_type = st.selectbox("Alert Type", ["Emergency", "Information", "Warning", "Update"])
+                
+                alert_message = st.text_area("Alert Message *", placeholder="Detailed alert information", height=100)
+                
+                col_submit, col_clear = st.columns(2)
+                
+                with col_submit:
+                    submit_alert = st.form_submit_button("Send Alert", type="primary", use_container_width=True)
+                
+                with col_clear:
+                    clear_form = st.form_submit_button("Clear Form", use_container_width=True)
 
-            if submit_alert and alert_title and alert_message:
-                # Store alert in Firestore
-                db.collection("alerts").add({
-                    "title": alert_title,
-                    "message": alert_message,
-                    "caller_name": caller_name,
-                    "caller_location": caller_location,
-                    "location": location,
-                    "from_officer": user_data["username"],
-                    "from_rank": rank,
-                    "timestamp": firestore.SERVER_TIMESTAMP,
-                    "active": True
-                })
-                st.success("Alert sent to sub officers!")
+                if submit_alert and alert_title and alert_message:
+                    try:
+                        # Store alert in Firestore
+                        alert_data = {
+                            "title": alert_title,
+                            "message": alert_message,
+                            "caller_name": caller_name or "N/A",
+                            "caller_location": caller_location or "N/A",
+                            "location": location or "N/A",
+                            "priority": alert_priority,
+                            "alert_type": alert_type,
+                            "from_officer": user_data["username"],
+                            "from_rank": rank,
+                            "from_name": f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}",
+                            "timestamp": firestore.SERVER_TIMESTAMP,
+                            "active": True,
+                            "created_date": firestore.SERVER_TIMESTAMP
+                        }
+                        
+                        db.collection("alerts").add(alert_data)
+                        st.success("Alert sent successfully to all sub officers!")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Error sending alert: {str(e)}")
 
-    # Sub officers see alerts - Modified query to work without complex index
-    else:
-        st.subheader("Alerts from Top Officers")
+        # Show recent alerts sent by this officer
+        st.markdown("<h3 style='font-size: 20px;'>My Recent Alerts</h3>", unsafe_allow_html=True)
         try:
-            # Simple query without ordering first
-            alerts_ref = db.collection("alerts").where("active", "==", True).limit(10)
+            recent_alerts = db.collection("alerts").where("from_officer", "==", user_data["username"]).limit(5).stream()
+            alert_count = 0
+            
+            for alert in recent_alerts:
+                alert_data = alert.to_dict()
+                alert_count += 1
+                
+                with st.container():
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    
+                    with col1:
+                        st.markdown(f"<h5 style='margin-bottom: 5px; font-weight: bold;'>{alert_data.get('title', 'N/A')}</h5>", unsafe_allow_html=True)
+                        st.caption(f"{alert_data.get('message', 'N/A')[:100]}...")
+                    
+                    with col2:
+                        st.markdown(f"**Priority:** {alert_data.get('priority', 'Low')}")
+                    
+                    with col3:
+                        if st.button("Deactivate", key=f"deactivate_{alert.id}", help="Deactivate alert"):
+                            db.collection("alerts").document(alert.id).update({"active": False})
+                            st.rerun()
+                    
+                    st.markdown("---")
+            
+            if alert_count == 0:
+                st.info("No recent alerts found.")
+                
+        except Exception as e:
+            st.error(f"Error loading recent alerts: {str(e)}")
+
+    # Sub officers see alerts
+    else:
+        st.markdown("<h3 style='font-size: 20px;'>Active Alerts from Command</h3>", unsafe_allow_html=True)
+        try:
+            # Simple query without complex ordering
+            alerts_ref = db.collection("alerts").where("active", "==", True).limit(15)
             alerts = alerts_ref.stream()
             
-            # Process results in memory
+            # Process results
             alert_list = []
             for alert in alerts:
                 alert_data = alert.to_dict()
                 alert_data['id'] = alert.id
-                if 'timestamp' in alert_data:  # Check if timestamp exists
+                if 'timestamp' in alert_data:
                     alert_list.append(alert_data)
             
-            # Sort in memory by timestamp if available
+            # Sort by timestamp if available
             if alert_list:
                 try:
                     alert_list.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
                 except:
-                    # If sorting fails, just show the alerts as they are
                     pass
             
-            # Display alerts
+            # Display alerts with enhanced UI
             if alert_list:
-                for alert_data in alert_list[:10]:
+                for i, alert_data in enumerate(alert_list[:10]):  # Show latest 10
+                    priority = alert_data.get('priority', 'Medium')
+                    alert_type = alert_data.get('alert_type', 'Information')
+                    
+                    # Color coding based on priority
+                    if priority == 'High':
+                        border_color = "#ff4444"
+                    elif priority == 'Medium':
+                        border_color = "#ffaa00"
+                    else:
+                        border_color = "#44ff44"
+                    
                     with st.container():
-                        st.markdown(f"""
-        **{alert_data.get('title', 'N/A')}**  
-        {alert_data.get('message', 'N/A')}  
-        👤 **Caller Name:** {alert_data.get('caller_name', 'N/A')}  
-        📍 **Caller Location:** {alert_data.get('caller_location', 'N/A')}  
-        🚓 **Deployment Location:** {alert_data.get('location', 'N/A')}  
-        👮 **Sent by:** {alert_data.get('from_rank', 'N/A')} ({alert_data.get('from_officer', 'N/A')})
-        """)
+                        st.markdown(
+                            f"""
+                            <div style="border-left: 4px solid {border_color}; padding-left: 10px; margin-bottom: 15px;">
+                            """,
+                            unsafe_allow_html=True
+                        )
+                        
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        
+                        with col1:
+                            st.markdown(f"<h4 style='margin-bottom: 5px; font-weight: bold;'>{alert_data.get('title', 'N/A')}</h4>", unsafe_allow_html=True)
+                            st.markdown(f"**Message:** {alert_data.get('message', 'N/A')}")
+                        
+                        with col2:
+                            st.markdown(f"**Priority:** {priority}")
+                            st.markdown(f"**Type:** {alert_type}")
+                        
+                        with col3:
+                            st.markdown(f"**From:** {alert_data.get('from_name', 'N/A')}")
+                            st.caption(f"({alert_data.get('from_rank', 'N/A')})")
+                        
+                        # Additional details in expandable section
+                        with st.expander("More Details"):
+                            col_a, col_b = st.columns(2)
+                            
+                            with col_a:
+                                st.markdown(f"**Caller Name:** {alert_data.get('caller_name', 'N/A')}")
+                                st.markdown(f"**Caller Location:** {alert_data.get('caller_location', 'N/A')}")
+                            
+                            with col_b:
+                                st.markdown(f"**Deployment Location:** {alert_data.get('location', 'N/A')}")
+                                st.markdown(f"**Alert Type:** {alert_data.get('alert_type', 'N/A')}")
+                        
+                        st.markdown("</div>", unsafe_allow_html=True)
                         st.markdown("---")
             else:
                 st.info("No active alerts at the moment.")

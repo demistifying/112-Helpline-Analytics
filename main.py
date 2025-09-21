@@ -20,26 +20,36 @@ if "logged_in" not in st.session_state:
 
 # If not logged in → show auth forms
 if not st.session_state.logged_in:
-    st.title("🚔 Goa Police Dashboard")
-    st.markdown("---")
+    # Center the title and add styling
+    st.markdown(
+        "<div style='text-align: center; margin-bottom: 2rem;'>"
+        "<h1 style='color: #1f4e79; font-size: 3rem; margin-bottom: 0.5rem;'>Goa Police Dashboard</h1>"
+        "<p style='color: #666; font-size: 1.2rem; margin-bottom: 0;'>Official Portal for Goa Police Officers</p>"
+        "</div>", 
+        unsafe_allow_html=True
+    )
     
-    # Create tabs for Sign In and Sign Up
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Create more compact login box
+    col1, col2, col3 = st.columns([1.5, 1, 1.5])
     
     with col2:
+        # Compact auth mode selection
         auth_mode = st.radio(
-            "Choose action:",
+            "",
             ["Sign In", "Sign Up", "Reset Password"],
             horizontal=True,
             key="auth_mode_radio"
         )
         
-        st.markdown("---")
-        
         if auth_mode == "Sign In":
-            st.subheader("🔐 Officer Sign In")
+            st.markdown(
+                "<div style='text-align: center; margin: 1rem 0;'>"
+                "<h3 style='color: #1f4e79; margin-bottom: 1rem;'>Officer Sign In</h3>"
+                "</div>", 
+                unsafe_allow_html=True
+            )
             
-            with st.form("signin_form"):
+            with st.form("signin_form", border=True):
                 email = st.text_input(
                     "Email Address",
                     placeholder="officer@goapolice.gov.in"
@@ -92,9 +102,14 @@ if not st.session_state.logged_in:
                     st.rerun()
         
         elif auth_mode == "Sign Up":
-            st.subheader("👮 New Officer Registration")
+            st.markdown(
+                "<div style='text-align: center; margin: 1rem 0;'>"
+                "<h3 style='color: #1f4e79; margin-bottom: 1rem;'>New Officer Registration</h3>"
+                "</div>", 
+                unsafe_allow_html=True
+            )
             
-            with st.form("signup_form"):
+            with st.form("signup_form", border=True):
                 # Personal Information
                 st.markdown("#### Personal Information")
                 col1, col2 = st.columns(2)
@@ -216,9 +231,14 @@ if not st.session_state.logged_in:
                                 st.error(message)
         
         elif auth_mode == "Reset Password":
-            st.subheader("🔑 Reset Password")
+            st.markdown(
+                "<div style='text-align: center; margin: 1rem 0;'>"
+                "<h3 style='color: #1f4e79; margin-bottom: 1rem;'>Reset Password</h3>"
+                "</div>", 
+                unsafe_allow_html=True
+            )
             
-            with st.form("reset_form"):
+            with st.form("reset_form", border=True):
                 email = st.text_input(
                     "Enter your registered email",
                     placeholder="officer@goapolice.gov.in"
@@ -255,13 +275,17 @@ if not st.session_state.logged_in:
                     st.rerun()
         
         # Footer
-        st.markdown("---")
-        st.caption("🔒 Secure authentication powered by Firebase")
-        st.caption("For support, contact: support@goapolice.gov.in")
+        st.markdown(
+            "<div style='text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #ddd;'>"
+            "<p style='color: #666; font-size: 0.9rem; margin-bottom: 0.5rem;'>Secure authentication powered by Firebase</p>"
+            "<p style='color: #666; font-size: 0.9rem; margin-bottom: 0;'>For support, contact: support@goapolice.gov.in</p>"
+            "</div>", 
+            unsafe_allow_html=True
+        )
 
 else:
     # Already logged in → show dashboard
-    st.sidebar.success(f"👮 {st.session_state.user['full_name']}")
+    st.sidebar.success(f"Officer: {st.session_state.user['full_name']}")
     st.sidebar.info(f"**Rank:** {st.session_state.user['rank']}")
     st.sidebar.info(f"**Jurisdiction:** {st.session_state.user['jurisdiction']}")
     st.sidebar.info(f"**Badge:** {st.session_state.user['badge_number']}")
@@ -269,7 +293,7 @@ else:
     st.sidebar.markdown("---")
     
     # Profile Management
-    with st.sidebar.expander("⚙️ Profile Settings"):
+    with st.sidebar.expander("Profile Settings"):
         if st.button("Change Password", use_container_width=True):
             st.session_state.show_change_password = True
         
