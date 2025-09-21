@@ -3,6 +3,18 @@ import pandas as pd
 import streamlit as st
 from config import REQUIRED_COLUMNS
 
+# Column mapping for different datasets
+COLUMN_MAPPINGS = {
+    'dummy_dataset': {
+        'EVENT_ID': 'call_id',
+        'CREATE_TIME': 'call_ts', 
+        'latitude': 'caller_lat',
+        'longitude': 'caller_lon',
+        'EVENT_MAIN_TYPE': 'category',
+        'station_main': 'jurisdiction'
+    }
+}
+
 @st.cache_data
 def load_data(source):
     """Loads data from CSV or XLSX, returns DataFrame and metadata."""
@@ -20,6 +32,13 @@ def load_data(source):
                 df = pd.read_excel(source)
             file_name = source.name
 
+        # Check if this is the Dummy dataset and apply column mapping
+        if 'EVENT_ID' in df.columns and 'CREATE_TIME' in df.columns:
+            # This is the Dummy dataset - apply column mapping
+            mapping = COLUMN_MAPPINGS['dummy_dataset']
+            df = df.rename(columns=mapping)
+            
+        # Check for required columns after mapping
         missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
         if missing_cols:
             raise ValueError(f"Missing required columns: {', '.join(missing_cols)}")
