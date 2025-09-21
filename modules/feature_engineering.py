@@ -87,17 +87,23 @@ def create_festival_features(df, festivals_list, timestamp_col='call_ts'):
 
 def prepare_features_for_prophet(df):
     """
-    Prepares enhanced DataFrame for Prophet with multiple regressors.
+    Prepares enhanced DataFrame for Prophet with optimized regressors.
     """
     df_prophet = df.set_index('call_ts').resample('D').size().reset_index()
     df_prophet.columns = ['ds', 'y']
     
-    # Add multiple regressors
+    # Add key regressors
     df_prophet['is_weekend'] = (df_prophet['ds'].dt.dayofweek >= 5).astype(int)
     df_prophet['month'] = df_prophet['ds'].dt.month
-    df_prophet['day_of_week'] = df_prophet['ds'].dt.dayofweek
-    df_prophet['is_month_end'] = (df_prophet['ds'].dt.day >= 28).astype(int)
-    df_prophet['is_month_start'] = (df_prophet['ds'].dt.day <= 3).astype(int)
+    
+    # Add lag features for better prediction
+    df_prophet = df_prophet.sort_values('ds')
+    df_prophet['y_lag1'] = df_prophet['y'].shift(1).fillna(df_prophet['y'].mean())
+    df_prophet['y_lag7'] = df_prophet['y'].shift(7).fillna(df_prophet['y'].mean())
+    
+    # Add rolling averages
+    df_prophet['y_roll3'] = df_prophet['y'].rolling(window=3, min_periods=1).mean()
+    df_prophet['y_roll7'] = df_prophet['y'].rolling(window=7, min_periods=1).mean()
     
     # Festival features
     df_prophet['is_festival'] = 0
@@ -204,11 +210,17 @@ def create_advanced_features(df, festivals_list):
     
     # Jurisdiction features
     if 'jurisdiction' in df_featured.columns:
-        jurisdiction_stats = df_featured.groupby('jurisdiction').agg({
-            'call_ts': 'count',
-            'response_time_min': ['mean', 'std']
-        }).fillna(0)
-        jurisdiction_stats.columns = ['juri_call_count', 'juri_avg_response', 'juri_std_response']
+        agg_dict = {'call_ts': 'count'}
+        if 'response_time_min' in df_featured.columns:
+            agg_dict['response_time_min'] = ['mean', 'std']
+            
+        jurisdiction_stats = df_featured.groupby('jurisdiction').agg(agg_dict).fillna(0)
+        
+        if 'response_time_min' in df_featured.columns:
+            jurisdiction_stats.columns = ['juri_call_count', 'juri_avg_response', 'juri_std_response']
+        else:
+            jurisdiction_stats.columns = ['juri_call_count']
+            
         df_featured = df_featured.merge(jurisdiction_stats, left_on='jurisdiction', right_index=True, how='left')
         df_featured = pd.get_dummies(df_featured, columns=['jurisdiction'], prefix='juri', drop_first=False)
     
@@ -253,11 +265,17 @@ def create_advanced_features(df, festivals_list):
     
     # Category encoding if present
     if 'category' in df_featured.columns:
-        category_stats = df_featured.groupby('category').agg({
-            'call_ts': 'count',
-            'response_time_min': 'mean'
-        }).fillna(0)
-        category_stats.columns = ['cat_frequency', 'cat_avg_response']
+        agg_dict = {'call_ts': 'count'}
+        if 'response_time_min' in df_featured.columns:
+            agg_dict['response_time_min'] = 'mean'
+            
+        category_stats = df_featured.groupby('category').agg(agg_dict).fillna(0)
+        
+        if 'response_time_min' in df_featured.columns:
+            category_stats.columns = ['cat_frequency', 'cat_avg_response']
+        else:
+            category_stats.columns = ['cat_frequency']
+            
         df_featured = df_featured.merge(category_stats, left_on='category', right_index=True, how='left')
     
     # Fill NaN values

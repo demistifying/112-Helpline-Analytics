@@ -2,13 +2,12 @@
 # Project-wide constants and expected column names
 
 REQUIRED_COLUMNS = [
-    "call_id EVENT_TIME",
-    "call_ts CREATE_TIME",        # timestamp string: YYYY-MM-DD HH:MM:SS
-    "caller_lat latitude",
-    "caller_lon longitude",
-    "category EVENT_MAIN_TYPE",
-    "jurisdiction station_main"
-    "station_sub"
+    "call_id",
+    "call_ts",        # timestamp string: YYYY-MM-DD HH:MM:SS
+    "caller_lat",
+    "caller_lon",
+    "category",
+    "jurisdiction"
 ]
 
 
