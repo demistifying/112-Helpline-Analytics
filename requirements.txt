@@ -1,8 +1,13 @@
-pandas
+# requirements.txt
 streamlit
-plotly.express
+pandas
+plotly
+plotly-express
 pydeck
 streamlit-folium
-requests
-ics
 firebase-admin
+streamlit-option-menu
+ics
+# Add the following two lines
+prophet
+xgboost
