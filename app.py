@@ -228,9 +228,6 @@ def main():
             kpi1.metric("Total calls (filtered)", kpis["total_calls"])
             kpi2.metric("Avg calls / day", kpis["avg_per_day"])
             kpi3.metric("Peak Call Hour", kpis["peak_hour"])
-            # ... (rest of the analytics dashboard code remains the same as your original file) ...
-            # ... It's long, so I am omitting it for brevity, but you should keep it. ...
-            # This includes the mapping tabs, time series chart, hourly distribution, and category pie chart.
 
 
         elif selected == "Predictive Forecasting":
