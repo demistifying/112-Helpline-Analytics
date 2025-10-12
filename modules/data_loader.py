@@ -8,8 +8,6 @@ COLUMN_MAPPINGS = {
     'dummy_dataset': {
         'EVENT_ID': 'call_id',
         'CREATE_TIME': 'call_ts', 
-        'latitude': 'caller_lat',
-        'longitude': 'caller_lon',
         'EVENT_MAIN_TYPE': 'category',
         'station_main': 'jurisdiction'
     }
@@ -59,12 +57,16 @@ def preprocess(df):
     if df is None:
         return pd.DataFrame() # return empty dataframe
 
+    # Remove duplicate columns first
+    df = df.loc[:, ~df.columns.duplicated()]
+    
     # Standardize column names (e.g., lowercase, replace spaces)
     df.columns = df.columns.str.lower().str.replace(' ', '_')
 
     # Ensure date, hour, weekday columns exist and are timezone-naive
     if "call_ts" in df.columns:
-        df["call_ts"] = pd.to_datetime(df["call_ts"], errors='coerce')
+        # Parse dates with DD-MM-YYYY format (dayfirst=True)
+        df["call_ts"] = pd.to_datetime(df["call_ts"], errors='coerce', dayfirst=True)
         
         # If timezone aware, convert to naive by removing tz info
         if pd.api.types.is_datetime64_any_dtype(df["call_ts"]) and df["call_ts"].dt.tz is not None:

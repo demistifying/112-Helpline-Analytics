@@ -5,65 +5,70 @@ def filter_significant_festivals(
     festivals_in_range,
     df,
     category='crime',
-    top_n=10  # Parameter to get top N festivals
+    top_n=10
 ):
     """
-    Identifies the top N festivals with the highest number of calls for a specific category.
-
-    Args:
-        festivals_in_range (list): List of tuples (name, start_ts, end_ts).
-        df (pd.DataFrame): The full dataframe of calls.
-        category (str): The category to check for spikes (e.g., 'crime').
-        top_n (int): The number of top festivals to return.
-
-    Returns:
-        list: A list of dictionaries, each with details of a top festival,
-              sorted by the highest call count day.
+    Identifies festivals with significant call volume increases (>30% above baseline).
     """
     if df.empty or not festivals_in_range:
         return []
 
-    # Ensure 'date' column is datetime
+    # Ensure proper date handling
+    if 'call_ts' in df.columns:
+        df = df.copy()
+        df['date'] = pd.to_datetime(df['call_ts']).dt.date
+    
     df['date'] = pd.to_datetime(df['date'])
 
     # Filter for the specific category
     df_cat = df[df['category'].str.lower() == category.lower()]
-
     if df_cat.empty:
         return []
+
+    # Calculate overall baseline from all non-festival days
+    all_festival_dates = set()
+    for _, fs, fe in festivals_in_range:
+        festival_days = pd.date_range(pd.to_datetime(fs).date(), pd.to_datetime(fe).date(), freq='D').date
+        all_festival_dates.update(festival_days)
+    
+    non_festival_data = df_cat[~df_cat['date'].dt.date.isin(all_festival_dates)]
+    if not non_festival_data.empty:
+        baseline_avg = non_festival_data.groupby(non_festival_data['date'].dt.date).size().mean()
+    else:
+        baseline_avg = df_cat.groupby(df_cat['date'].dt.date).size().mean()
+    
+    if pd.isna(baseline_avg) or baseline_avg <= 0:
+        baseline_avg = 1
 
     festival_crime_stats = []
 
     for name, fs, fe in festivals_in_range:
-        festival_days = pd.date_range(fs, fe, freq='D')
-        df_fest = df_cat[df_cat['date'].isin(festival_days)]
-
+        festival_start = pd.to_datetime(fs).date()
+        festival_end = pd.to_datetime(fe).date()
+        festival_days = pd.date_range(festival_start, festival_end, freq='D').date
+        
+        df_fest = df_cat[df_cat['date'].dt.date.isin(festival_days)]
         if df_fest.empty:
             continue
 
-        daily_counts = df_fest.groupby('date').size()
+        daily_counts = df_fest.groupby(df_fest['date'].dt.date).size()
+        if daily_counts.empty:
+            continue
+            
         max_day_count = daily_counts.max()
         max_day = daily_counts.idxmax()
+        increase_pct = ((max_day_count - baseline_avg) / baseline_avg) * 100
 
-        # We need a baseline to calculate percentage, even if not used for filtering
-        # For simplicity, we can set a dummy baseline or calculate it as before
-        baseline_avg = df_cat[~df_cat['date'].isin(festival_days)].groupby('date').size().mean()
-        if pd.isna(baseline_avg) or baseline_avg == 0:
-            increase_pct = 100.0  # Assign a high value if no baseline
-        else:
-            increase_pct = ((max_day_count - baseline_avg) / baseline_avg) * 100
+        # Include festivals with >30% increase OR top call volumes
+        if increase_pct > 30 or max_day_count >= baseline_avg * 1.5:
+            festival_crime_stats.append({
+                'name': name,
+                'max_day': max_day.strftime('%Y-%m-%d'),
+                'max_count': int(max_day_count),
+                'baseline_avg': baseline_avg,
+                'max_pct': increase_pct
+            })
 
-        festival_crime_stats.append({
-            'name': name,
-            'max_day': max_day.strftime('%Y-%m-%d'),
-            'max_count': int(max_day_count),
-            'baseline_avg': baseline_avg,
-            'max_pct': increase_pct
-        })
-
-    # --- NEW LOGIC: Sort by the max count and take the top N ---
-    # Sort the list of festivals by 'max_count' in descending order
-    sorted_festivals = sorted(festival_crime_stats, key=lambda x: x['max_count'], reverse=True)
-
-    # Return the top N results
+    # Sort by percentage increase, then by max count
+    sorted_festivals = sorted(festival_crime_stats, key=lambda x: (x['max_pct'], x['max_count']), reverse=True)
     return sorted_festivals[:top_n]

@@ -3,9 +3,7 @@
 
 REQUIRED_COLUMNS = [
     "call_id",
-    "call_ts",        # timestamp string: YYYY-MM-DD HH:MM:SS
-    "caller_lat",
-    "caller_lon",
+    "call_ts",
     "category",
     "jurisdiction"
 ]

@@ -75,79 +75,83 @@ def train_enhanced_prophet_model(df_prophet, holidays_df=None):
         return None, {'error': str(e)}
 
 def train_enhanced_event_type_model(df_features):
-    """Enhanced ensemble model for event type classification"""
+    """Enhanced ensemble model for event type classification with proper train/test split"""
     try:
+        from sklearn.model_selection import train_test_split
+        from sklearn.metrics import accuracy_score, precision_score, f1_score
+        
         # Prepare features
         feature_cols = [col for col in df_features.columns if col not in ['category', 'call_ts', 'date']]
-        X = df_features[feature_cols].fillna(0)
-        y = df_features['category'].fillna('unknown')
+        numeric_cols = df_features[feature_cols].select_dtypes(include=[np.number]).columns.tolist()
         
-        # Enhanced ensemble with fixed random states for consistency
-        rf_model = RandomForestClassifier(
-            n_estimators=200,
-            max_depth=15,
-            min_samples_split=5,
-            min_samples_leaf=2,
-            random_state=42,
-            class_weight='balanced'
+        if len(numeric_cols) == 0:
+            return None, None, {'error': 'No numeric features available'}
+        
+        X = df_features[numeric_cols].fillna(0).reset_index(drop=True)
+        y = df_features['category'].fillna('unknown').reset_index(drop=True)
+        
+        # Filter out classes with too few samples (< 2)
+        class_counts = y.value_counts()
+        valid_classes = class_counts[class_counts >= 2].index
+        valid_mask = y.isin(valid_classes)
+        
+        X_filtered = X[valid_mask].reset_index(drop=True)
+        y_filtered = y[valid_mask].reset_index(drop=True)
+        
+        if len(X_filtered) < 4:
+            return None, None, {'error': 'Insufficient data after filtering'}
+        
+        # PROPER TRAIN/TEST SPLIT
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_filtered, y_filtered, test_size=0.2, random_state=42, shuffle=True
         )
         
-        gb_model = GradientBoostingClassifier(
-            n_estimators=150,
-            learning_rate=0.1,
-            max_depth=8,
-            random_state=42
-        )
-        
+        # Enhanced XGBoost model with advanced hyperparameters
         xgb_model = xgb.XGBClassifier(
-            n_estimators=200,
-            learning_rate=0.1,
-            max_depth=8,
+            n_estimators=1500,
+            learning_rate=0.02,
+            max_depth=12,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_alpha=0.2,
+            reg_lambda=1.5,
+            gamma=0.1,
+            min_child_weight=3,
             random_state=42,
-            eval_metric='mlogloss'
+            eval_metric='mlogloss',
+            n_jobs=1
         )
         
-        # Voting ensemble
-        ensemble = VotingClassifier(
-            estimators=[
-                ('rf', rf_model),
-                ('gb', gb_model),
-                ('xgb', xgb_model)
-            ],
-            voting='soft'
-        )
+        # Train on training data only
+        xgb_model.fit(X_train, y_train)
         
-        # Enhanced cross-validation with fixed random state
-        from sklearn.model_selection import StratifiedKFold
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        cv_scores = cross_val_score(ensemble, X, y, cv=cv, scoring='accuracy')
-        cv_precision = cross_val_score(ensemble, X, y, cv=cv, scoring='precision_weighted')
-        cv_f1 = cross_val_score(ensemble, X, y, cv=cv, scoring='f1_weighted')
-        
-        # Fit final model
-        ensemble.fit(X, y)
+        # Evaluate on TEST data only
+        y_pred_test = xgb_model.predict(X_test)
+        test_accuracy = accuracy_score(y_test, y_pred_test)
+        test_precision = precision_score(y_test, y_pred_test, average='weighted', zero_division=0)
+        test_f1 = f1_score(y_test, y_pred_test, average='weighted', zero_division=0)
         
         # Enhanced metrics
         metrics = {
-            'K-Fold Mean Accuracy': cv_scores.mean(),
-            'K-Fold Mean Precision (Weighted)': cv_precision.mean(),
-            'K-Fold Mean F1 (Weighted)': cv_f1.mean(),
-            'Best Model': 'Enhanced Ensemble',
-            'Model Scores': {
-                'RandomForest': {'Accuracy': cv_scores.mean() * 0.95, 'F1-Score': cv_f1.mean() * 0.95},
-                'GradientBoosting': {'Accuracy': cv_scores.mean() * 0.92, 'F1-Score': cv_f1.mean() * 0.92},
-                'XGBoost': {'Accuracy': cv_scores.mean(), 'F1-Score': cv_f1.mean()}
-            }
+            'Test Accuracy': test_accuracy,
+            'Test Precision (Weighted)': test_precision,
+            'Test F1 (Weighted)': test_f1,
+            'Best Model': 'Enhanced XGBoost'
         }
         
-        return ensemble, None, metrics
+        return xgb_model, None, metrics
         
     except Exception as e:
         return None, None, {'error': str(e)}
 
 def train_enhanced_peak_hour_model(df_features):
-    """Enhanced ensemble model for peak hour prediction"""
+    """Enhanced ensemble model for peak hour prediction with proper train/test split"""
     try:
+        from sklearn.model_selection import train_test_split
+        
+        if len(df_features) < 10:
+            return None, {'error': 'Insufficient data'}
+        
         # Create hourly aggregation for peak hour prediction
         df_hourly = df_features.groupby([
             df_features['call_ts'].dt.date,
@@ -155,77 +159,68 @@ def train_enhanced_peak_hour_model(df_features):
         ]).size().reset_index()
         df_hourly.columns = ['date', 'hour', 'call_count']
         
+        if len(df_hourly) < 10:
+            return None, {'error': 'Insufficient hourly data'}
+        
         # Find peak hour for each day
         daily_peaks = df_hourly.groupby('date')['call_count'].idxmax()
         peak_hours = df_hourly.loc[daily_peaks, ['date', 'hour']].reset_index(drop=True)
         
-        # Merge with features
+        # Create simple features
         peak_hours['date'] = pd.to_datetime(peak_hours['date'])
-        df_features['date'] = df_features['call_ts'].dt.date
-        df_features['date'] = pd.to_datetime(df_features['date'])
-        
-        # Get daily features (take first occurrence of each day)
-        daily_features = df_features.groupby('date').first().reset_index()
-        peak_data = peak_hours.merge(daily_features, on='date', how='left')
+        peak_hours['day_of_week'] = peak_hours['date'].dt.dayofweek
+        peak_hours['month'] = peak_hours['date'].dt.month
+        peak_hours['is_weekend'] = (peak_hours['day_of_week'] >= 5).astype(int)
         
         # Prepare features
-        feature_cols = [col for col in peak_data.columns if col not in ['hour', 'call_ts', 'date', 'category']]
-        X = peak_data[feature_cols].fillna(0)
-        y = peak_data['hour']
+        feature_cols = ['day_of_week', 'month', 'is_weekend']
+        X = peak_hours[feature_cols].fillna(0)
+        y = peak_hours['hour']
         
-        # Enhanced ensemble models with fixed random states
-        rf_model = RandomForestRegressor(
-            n_estimators=200,
-            max_depth=12,
-            min_samples_split=5,
-            random_state=42
+        if len(X) < 4:
+            return None, {'error': 'Insufficient peak hour data'}
+        
+        # PROPER TRAIN/TEST SPLIT
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, shuffle=False
         )
         
-        gb_model = GradientBoostingRegressor(
-            n_estimators=150,
-            learning_rate=0.1,
-            max_depth=8,
-            random_state=42
-        )
-        
+        # Enhanced XGBoost model with advanced hyperparameters
         xgb_model = xgb.XGBRegressor(
-            n_estimators=200,
-            learning_rate=0.1,
-            max_depth=8,
-            random_state=42
+            n_estimators=1500,
+            learning_rate=0.02,
+            max_depth=12,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_alpha=0.2,
+            reg_lambda=1.5,
+            gamma=0.1,
+            min_child_weight=3,
+            random_state=42,
+            n_jobs=1
         )
         
-        # Voting ensemble
-        ensemble = VotingRegressor(
-            estimators=[
-                ('rf', rf_model),
-                ('gb', gb_model),
-                ('xgb', xgb_model)
-            ]
-        )
+        # Train on training data only
+        xgb_model.fit(X_train, y_train)
         
-        # Enhanced cross-validation with fixed random state
-        from sklearn.model_selection import KFold
-        cv = KFold(n_splits=5, shuffle=True, random_state=42)
-        cv_mae = -cross_val_score(ensemble, X, y, cv=cv, scoring='neg_mean_absolute_error')
-        cv_r2 = cross_val_score(ensemble, X, y, cv=cv, scoring='r2')
+        # Evaluate on TEST data only
+        y_pred_test = xgb_model.predict(X_test)
+        test_mae = mean_absolute_error(y_test, y_pred_test)
+        test_r2 = r2_score(y_test, y_pred_test)
         
-        # Fit final model
-        ensemble.fit(X, y)
+        # Calculate accuracy percentage
+        mape = np.mean(np.abs((y_test - y_pred_test) / np.maximum(y_test, 1)))
+        accuracy = (1 - mape) * 100
         
         # Enhanced metrics
         metrics = {
-            'K-Fold Mean Absolute Error (MAE)': cv_mae.mean(),
-            'K-Fold Mean R-squared': cv_r2.mean(),
-            'Best Model': 'Enhanced Ensemble',
-            'Model Scores': {
-                'RandomForest': {'MAE': cv_mae.mean() * 1.05, 'R²': cv_r2.mean() * 0.95},
-                'GradientBoosting': {'MAE': cv_mae.mean() * 1.02, 'R²': cv_r2.mean() * 0.97},
-                'XGBoost': {'MAE': cv_mae.mean(), 'R²': cv_r2.mean()}
-            }
+            'Test MAE': test_mae,
+            'Test R-squared': test_r2,
+            'Test Accuracy': accuracy,
+            'Best Model': 'Enhanced XGBoost'
         }
         
-        return ensemble, metrics
+        return xgb_model, metrics
         
     except Exception as e:
         return None, {'error': str(e)}

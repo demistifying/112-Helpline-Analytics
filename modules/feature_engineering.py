@@ -85,11 +85,15 @@ def create_festival_features(df, festivals_list, timestamp_col='call_ts'):
     df['is_festival'] = df[timestamp_col].dt.date.isin(festival_dates).astype(int)
     return df
 
-def prepare_features_for_prophet(df):
+def prepare_features_for_prophet(df, significant_festivals=None):
     """
-    Prepares enhanced DataFrame for Prophet with optimized regressors.
+    Prepares enhanced DataFrame for Prophet with festival-aware features.
     """
-    df_prophet = df.set_index('call_ts').resample('D').size().reset_index()
+    # Ensure call_ts is datetime and remove any NaT values
+    df_clean = df.dropna(subset=['call_ts']).copy()
+    df_clean['call_ts'] = pd.to_datetime(df_clean['call_ts'])
+    
+    df_prophet = df_clean.set_index('call_ts').resample('D').size().reset_index()
     df_prophet.columns = ['ds', 'y']
     
     # Add key regressors
@@ -105,9 +109,20 @@ def prepare_features_for_prophet(df):
     df_prophet['y_roll3'] = df_prophet['y'].rolling(window=3, min_periods=1).mean()
     df_prophet['y_roll7'] = df_prophet['y'].rolling(window=7, min_periods=1).mean()
     
-    # Festival features
+    # Enhanced festival features
     df_prophet['is_festival'] = 0
-    if 'is_festival' in df.columns:
+    
+    # Use significant festivals if provided
+    if significant_festivals:
+        festival_dates = set()
+        for fest_info in significant_festivals:
+            if 'max_day' in fest_info:
+                fest_date = pd.to_datetime(fest_info['max_day']).date()
+                festival_dates.add(fest_date)
+        
+        df_prophet['is_festival'] = df_prophet['ds'].dt.date.isin(festival_dates).astype(int)
+    elif 'is_festival' in df.columns:
+        # Fallback to original festival detection
         festival_daily = df.groupby(df['call_ts'].dt.date)['is_festival'].max().reset_index()
         festival_daily['call_ts'] = pd.to_datetime(festival_daily['call_ts'])
         df_prophet = df_prophet.merge(festival_daily, left_on='ds', right_on='call_ts', how='left', suffixes=('', '_fest'))
@@ -173,20 +188,27 @@ def create_advanced_features(df, festivals_list):
     df_featured['days_to_festival'] = 999
     df_featured['days_from_festival'] = 999
     
-    for idx, row in df_featured.iterrows():
-        current_date = row['call_ts'].date()
-        min_days_to = 999
-        min_days_from = 999
-        
-        for festival_date in festival_dates:
-            days_diff = (festival_date - current_date).days
-            if days_diff >= 0 and days_diff < min_days_to:
-                min_days_to = days_diff
-            elif days_diff < 0 and abs(days_diff) < min_days_from:
-                min_days_from = abs(days_diff)
-        
-        df_featured.at[idx, 'days_to_festival'] = min_days_to if min_days_to < 999 else 0
-        df_featured.at[idx, 'days_from_festival'] = min_days_from if min_days_from < 999 else 0
+    # Filter out rows with NaT values in call_ts
+    valid_rows = df_featured['call_ts'].notna()
+    
+    for idx, row in df_featured[valid_rows].iterrows():
+        try:
+            current_date = row['call_ts'].date()
+            min_days_to = 999
+            min_days_from = 999
+            
+            for festival_date in festival_dates:
+                days_diff = (festival_date - current_date).days
+                if days_diff >= 0 and days_diff < min_days_to:
+                    min_days_to = days_diff
+                elif days_diff < 0 and abs(days_diff) < min_days_from:
+                    min_days_from = abs(days_diff)
+            
+            df_featured.at[idx, 'days_to_festival'] = min_days_to if min_days_to < 999 else 0
+            df_featured.at[idx, 'days_from_festival'] = min_days_from if min_days_from < 999 else 0
+        except (AttributeError, TypeError):
+            # Skip rows with invalid dates
+            continue
     
     df_featured['is_pre_festival'] = (df_featured['days_to_festival'] <= 3).astype(int)
     df_featured['is_post_festival'] = (df_featured['days_from_festival'] <= 3).astype(int)
@@ -278,18 +300,12 @@ def create_advanced_features(df, festivals_list):
             
         df_featured = df_featured.merge(category_stats, left_on='category', right_index=True, how='left')
     
-    # Fill NaN values
+    # Fill NaN values safely
     numeric_columns = df_featured.select_dtypes(include=[np.number]).columns
-    df_featured[numeric_columns] = df_featured[numeric_columns].fillna(0)
+    for col in numeric_columns:
+        if col in df_featured.columns:
+            df_featured[col] = df_featured[col].fillna(0)
     
     return df_featured
 
 
-def prepare_features_for_prophet(df):
-    """
-    Prepares the DataFrame for Prophet, now including 'is_weekend' as a regressor.
-    """
-    df_prophet = df.set_index('call_ts').resample('D').size().reset_index()
-    df_prophet.columns = ['ds', 'y']
-    df_prophet['is_weekend'] = (df_prophet['ds'].dt.dayofweek >= 5).astype(int)
-    return df_prophet

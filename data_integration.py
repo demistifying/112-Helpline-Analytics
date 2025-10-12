@@ -14,9 +14,14 @@ def convert_caller_entry_to_dataset_format(caller_entry):
     # Convert create_time to call_ts format
     create_time = caller_entry.get('create_time')
     if isinstance(create_time, str):
-        call_ts = pd.to_datetime(create_time).strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            call_ts = pd.to_datetime(create_time, dayfirst=True).strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            # If parsing fails, skip this entry by returning None
+            return None
     else:
-        call_ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # If no create_time, skip this entry
+        return None
     
     # Map event_main_type to category (simplified mapping)
     category_mapping = {
@@ -75,7 +80,8 @@ def get_new_caller_entries_as_dataframe():
         for entry in entries:
             entry_data = entry.to_dict()
             converted_data = convert_caller_entry_to_dataset_format(entry_data)
-            converted_entries.append(converted_data)
+            if converted_data is not None:  # Only add valid entries
+                converted_entries.append(converted_data)
         
         if converted_entries:
             return pd.DataFrame(converted_entries)

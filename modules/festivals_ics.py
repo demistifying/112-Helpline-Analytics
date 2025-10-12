@@ -15,17 +15,35 @@ def fetch_festivals_from_ics():
     """
     festivals = []
     
-    # Try local file first
-    local_ics_path = os.path.join("data", "festivals.ics")
+    # Try both local files
+    local_files = [
+        os.path.join("data", "festivals.ics"),
+        os.path.join("data", "indian_festivals.ics")
+    ]
     
-    if os.path.exists(local_ics_path):
-        try:
-            festivals = parse_local_ics_file(local_ics_path)
-            if festivals:
-                st.sidebar.success(f"✅ Loaded {len(festivals)} festivals from local file")
-                return festivals
-        except Exception as e:
-            st.sidebar.warning(f"⚠️ Error parsing local festival calendar: {str(e)}")
+    all_festivals = []
+    for local_ics_path in local_files:
+        if os.path.exists(local_ics_path):
+            try:
+                file_festivals = parse_local_ics_file(local_ics_path)
+                if file_festivals:
+                    all_festivals.extend(file_festivals)
+            except Exception as e:
+                st.sidebar.warning(f"⚠️ Error parsing {local_ics_path}: {str(e)}")
+    
+    if all_festivals:
+        # Remove duplicates and add New Year's Eve if missing
+        all_festivals = list(set(all_festivals))
+        
+        # Check if New Year's Eve exists, if not add it
+        current_year = datetime.now().year
+        nye_exists = any('New Year' in name and '31' in str(date.day) for name, date, _ in all_festivals)
+        if not nye_exists:
+            for year in [current_year - 1, current_year, current_year + 1]:
+                all_festivals.append((f"New Year's Eve", datetime(year, 12, 31), datetime(year, 12, 31)))
+        
+        st.sidebar.success(f"✅ Loaded {len(all_festivals)} festivals from local files")
+        return all_festivals
     
     # If local fails, try remote sources
     remote_urls = [
@@ -149,19 +167,29 @@ def get_fallback_festivals():
     festivals = []
     
     # Add festivals for current and next year
-    for year in [current_year, current_year + 1]:
+    # Add festivals for past, current and next year to ensure coverage
+    for year in [current_year - 1, current_year, current_year + 1]:
         festivals.extend([
+            (f"New Year's Day {year}", datetime(year, 1, 1), datetime(year, 1, 1)),
             (f"Republic Day {year}", datetime(year, 1, 26), datetime(year, 1, 26)),
-            (f"Holi {year}", datetime(year, 3, 13), datetime(year, 3, 13)),  # Approximate
-            (f"Ram Navami {year}", datetime(year, 4, 17), datetime(year, 4, 17)),  # Approximate
-            (f"Eid ul-Fitr {year}", datetime(year, 4, 21), datetime(year, 4, 21)),  # Approximate
+            (f"Maha Shivratri {year}", datetime(year, 2, 18), datetime(year, 2, 18)),
+            (f"Holi {year}", datetime(year, 3, 13), datetime(year, 3, 13)),
+            (f"Ram Navami {year}", datetime(year, 4, 17), datetime(year, 4, 17)),
+            (f"Good Friday {year}", datetime(year, 4, 7), datetime(year, 4, 7)),
+            (f"Eid ul-Fitr {year}", datetime(year, 4, 21), datetime(year, 4, 21)),
+            (f"Buddha Purnima {year}", datetime(year, 5, 16), datetime(year, 5, 16)),
+            (f"Eid ul-Adha {year}", datetime(year, 6, 28), datetime(year, 6, 28)),
             (f"Independence Day {year}", datetime(year, 8, 15), datetime(year, 8, 15)),
-            (f"Janmashtami {year}", datetime(year, 8, 30), datetime(year, 8, 30)),  # Approximate
-            (f"Ganesh Chaturthi {year}", datetime(year, 9, 7), datetime(year, 9, 7)),  # Approximate
-            (f"Dussehra {year}", datetime(year, 10, 15), datetime(year, 10, 15)),  # Approximate
-            (f"Diwali {year}", datetime(year, 11, 12), datetime(year, 11, 12)),  # Approximate
-            (f"Guru Nanak Jayanti {year}", datetime(year, 11, 27), datetime(year, 11, 27)),  # Approximate
+            (f"Janmashtami {year}", datetime(year, 8, 30), datetime(year, 8, 30)),
+            (f"Ganesh Chaturthi {year}", datetime(year, 9, 7), datetime(year, 9, 7)),
+            (f"Gandhi Jayanti {year}", datetime(year, 10, 2), datetime(year, 10, 2)),
+            (f"Dussehra {year}", datetime(year, 10, 15), datetime(year, 10, 15)),
+            (f"Karva Chauth {year}", datetime(year, 11, 1), datetime(year, 11, 1)),
+            (f"Diwali {year}", datetime(year, 11, 12), datetime(year, 11, 12)),
+            (f"Bhai Dooj {year}", datetime(year, 11, 14), datetime(year, 11, 14)),
+            (f"Guru Nanak Jayanti {year}", datetime(year, 11, 27), datetime(year, 11, 27)),
             (f"Christmas {year}", datetime(year, 12, 25), datetime(year, 12, 25)),
+            (f"New Year's Eve", datetime(year, 12, 31), datetime(year, 12, 31)),
         ])
     
     return festivals

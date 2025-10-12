@@ -5,6 +5,10 @@ from firebase_admin import credentials, firestore
 import pandas as pd
 from datetime import datetime, timezone, date, time, timedelta
 import uuid
+import os
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
+from goa_locations import GOA_LOCATIONS, GOA_SUBSTATIONS
 
 # Assistant police officer ranks that can access caller entry
 ASSISTANT_OFFICER_RANKS = [
@@ -95,6 +99,23 @@ def generate_event_id():
     unique_id = str(uuid.uuid4())[:8].upper()
     return f"EVT-{timestamp}-{unique_id}"
 
+def geocode_location(location_name):
+    """Get coordinates for a location using geocoding"""
+    try:
+        geolocator = Nominatim(user_agent="goa-police-app/1.0 (raghavshrivastav0812@gmail.com)", timeout=10)
+        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.1)
+        
+        query = f"{location_name}, Goa, India"
+        location = geocode(query)
+        
+        if location:
+            return location.latitude, location.longitude
+        else:
+            return None, None
+    except Exception as e:
+        st.warning(f"Could not geocode location: {e}")
+        return None, None
+
 def save_caller_entry(entry_data, officer_info):
     """Save caller entry to Firestore"""
     try:
@@ -155,7 +176,7 @@ def caller_entry_form():
     if 'reach_seconds' not in st.session_state:
         st.session_state.reach_seconds = 0
         
-    with st.form("caller_entry_form", clear_on_submit=True):
+    with st.form("caller_entry_form", clear_on_submit=False):
         # Row 1: Basic Information
         col1, col2, col3 = st.columns(3)
         
@@ -211,10 +232,11 @@ def caller_entry_form():
             )
         
         with col7:
-            incident_location = st.text_input(
+            incident_location = st.selectbox(
                 "Incident Location *",
-                placeholder="Detailed address or landmark",
-                help="Exact location where incident occurred"
+                options=[''] + sorted(GOA_LOCATIONS),
+                format_func=lambda x: 'Select incident location...' if x == '' else x,
+                help="Select the location where incident occurred"
             )
         
         # Row 4: Event Information (Full Width)
@@ -236,9 +258,10 @@ def caller_entry_form():
             )
         
         with col9:
-            station_sub = st.text_input(
+            station_sub = st.selectbox(
                 "Sub Station",
-                placeholder="Sub-station if applicable",
+                options=[''] + sorted(GOA_SUBSTATIONS),
+                format_func=lambda x: 'Select sub-station...' if x == '' else x,
                 help="Sub-station or outpost (if applicable)"
             )
         
@@ -263,14 +286,12 @@ def caller_entry_form():
                     help="Time when Mobile Data Terminal was assigned"
                 )
             with col_button:
-                # Create a form submit button for setting the current time
                 set_time = st.form_submit_button(
                     "Allot Time",
                     help="Set MDT Assigned Time to current time"
                 )
                 if set_time:
                     st.session_state.mdt_assigned_time = datetime.now().time()
-                    st.rerun()
         
         with col12:
             col_delivered_time, col_delivered_btn = st.columns([3, 1])
@@ -284,7 +305,8 @@ def caller_entry_form():
                 )
                 
             with col_delivered_btn:
-                if st.form_submit_button("Delivered", help="Set to current time difference from MDT Assigned Time"):
+                delivered_btn = st.form_submit_button("Delivered", help="Set to current time difference from MDT Assigned Time")
+                if delivered_btn:
                     if st.session_state.mdt_assigned_time is not None:
                         current_time = datetime.now().time()
                         base_date = date.today()
@@ -295,7 +317,6 @@ def caller_entry_form():
                             current_dt = current_dt + timedelta(days=1)
                         
                         st.session_state.delivered_seconds = int((current_dt - mdt_dt).total_seconds())
-                        st.rerun()
         
         with col13:
             col_reach_time, col_reach_btn = st.columns([3, 1])
@@ -309,7 +330,8 @@ def caller_entry_form():
                 )
                 
             with col_reach_btn:
-                if st.form_submit_button("Reach", help="Set to current time difference from MDT Assigned Time"):
+                reach_btn = st.form_submit_button("Reach", help="Set to current time difference from MDT Assigned Time")
+                if reach_btn:
                     if st.session_state.mdt_assigned_time is not None:
                         current_time = datetime.now().time()
                         base_date = date.today()
@@ -320,7 +342,6 @@ def caller_entry_form():
                             current_dt = current_dt + timedelta(days=1)
                         
                         st.session_state.reach_seconds = int((current_dt - mdt_dt).total_seconds())
-                        st.rerun()
         
         # Calculate MDT Response Time automatically
         col14 = st.columns(1)[0]
@@ -402,6 +423,10 @@ def caller_entry_form():
                 # Calculate response time
                 response_seconds = max(0, st.session_state.reach_seconds - st.session_state.delivered_seconds)
                 
+                # Geocode the incident location to get coordinates
+                with st.spinner("Getting location coordinates..."):
+                    caller_lat, caller_lon = geocode_location(incident_location)
+                
                 # Prepare data for saving
                 entry_data = {
                     'sl_no': len(get_caller_entries()) + 1,  # Simple serial number
@@ -413,6 +438,8 @@ def caller_entry_form():
                     'event_main_type': event_main_type,
                     'event_information': event_information,
                     'incident_location': incident_location,
+                    'caller_lat': caller_lat,
+                    'caller_lon': caller_lon,
                     'station_main': station_main,
                     'station_sub': station_sub,
                     'call_sign': call_sign,
@@ -428,7 +455,10 @@ def caller_entry_form():
                 success, message = save_caller_entry(entry_data, st.session_state.user_data)
                 
                 if success:
-                    st.success(message)
+                    if caller_lat and caller_lon:
+                        st.success(f"{message}\n📍 Location coordinates: {caller_lat:.4f}, {caller_lon:.4f}")
+                    else:
+                        st.success(f"{message}\n⚠️ Location coordinates could not be determined")
                     st.balloons()
                     # Optionally rerun to clear the form
                     st.rerun()
