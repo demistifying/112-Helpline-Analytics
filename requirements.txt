@@ -12,4 +12,3 @@ xgboost>=1.7.0
 uuid
 datetime
 geopy
-sklearn
