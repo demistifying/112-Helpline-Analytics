@@ -1,22 +1,54 @@
-__pycache__/config.cpython-313.pyc
-modules/__pycache__/analysis.cpython-313.pyc
-modules/__pycache__/data_loader.cpython-313.pyc
-modules/__pycache__/mapping.cpython-313.pyc
-modules/__pycache__/festivals_ics.cpython-313.pyc
-modules/__pycache__/festivals_utils.cpython-313.pyc
-modules/__pycache__/ui_calendar.cpython-313.pyc
-.github/copilot-instructions.md
-goa-police-portal-firebase-adminsdk-fbsvc-4a2d5f6c03.json
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Streamlit
+.streamlit/
+
+# Firebase credentials
 serviceAccountKey.json
-.streamlit/secrets.toml
-modules/__pycache__/analysis.cpython-310.pyc
-modules/__pycache__/data_loader.cpython-310.pyc
-modules/__pycache__/festivals_ics.cpython-310.pyc
-modules/__pycache__/festivals_utils.cpython-310.pyc
-modules/__pycache__/mapping.cpython-310.pyc
-modules/__pycache__/ui_calendar.cpython-310.pyc
-__pycache__/auth_ui.cpython-310.pyc
-__pycache__/config.cpython-310.pyc
-IMPROVEMENTS_SUMMARY.md
-__pycache__/caller_entry.cpython-313.pyc
-__pycache__/data_integration.cpython-313.pyc
+*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files
+*.csv
+*.xlsx
+*.xls
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
