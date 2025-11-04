@@ -6,7 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
-from streamlit_folium import st_folium
+#from streamlit_folium import st_folium
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from streamlit_option_menu import option_menu
