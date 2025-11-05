@@ -35,8 +35,12 @@ from modules.festival_baselines import calculate_weekly_top_n_peaks, get_baselin
 
 # Initialize Firebase only once
 if not firebase_admin._apps:
-    cred = credentials.Certificate(dict(st.secrets["firebase"]))
-    firebase_admin.initialize_app(cred)
+    try:
+        cred = credentials.Certificate(dict(st.secrets["firebase"]))
+        firebase_admin.initialize_app(cred)
+    except KeyError:
+        st.error("Firebase credentials not found in secrets. Please add them in Streamlit Cloud settings.")
+        st.stop()
 
 # Firestore client
 db = firestore.client()
