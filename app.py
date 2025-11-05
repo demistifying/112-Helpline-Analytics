@@ -35,7 +35,7 @@ from modules.festival_baselines import calculate_weekly_top_n_peaks, get_baselin
 
 # Initialize Firebase only once
 if not firebase_admin._apps:
-    cred = credentials.Certificate("serviceAccountKey.json")
+    cred = credentials.Certificate(dict(st.secrets["firebase"]))
     firebase_admin.initialize_app(cred)
 
 # Firestore client
