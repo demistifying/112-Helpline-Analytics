@@ -11,27 +11,30 @@ import firebase_admin
 from firebase_admin import credentials, firestore, auth
 from streamlit_option_menu import option_menu
 
-from auth_ui import initialize_session_state, signup_form, login_form, show_user_info, notification_center, TOP_OFFICER_RANKS
-from caller_entry import caller_entry_dashboard, check_access_permission  # Import caller entry module
-from modules.data_loader import load_data, preprocess
-from data_integration import append_caller_entries_to_dataset
-from modules.analysis import (
-    agg_calls_by_day, agg_calls_by_hour, category_distribution, compute_kpis,
-    interpret_time_series, interpret_hourly_distribution
-)
-from modules.mapping import pydeck_points_map, pydeck_heatmap, pydeck_hexbin_3d
-from modules.festivals_ics import fetch_festivals_from_ics
-from modules.festivals_utils import filter_significant_festivals
-from modules.ui_calendar import render_month_calendar
-
-# --- PREDICTIVE MODELS IMPORTS ---
-from modules.feature_engineering import prepare_features_for_prophet, prepare_features_for_xgboost
-from modules.predictive_models import (
-    train_prophet_model, predict_with_prophet,
-    train_event_type_model, predict_event_type_distribution,
-    train_peak_hour_model, predict_hourly_calls_for_n_days
-)
-from modules.festival_baselines import calculate_weekly_top_n_peaks, get_baseline_for_date
+try:
+    from auth_ui import initialize_session_state, signup_form, login_form, show_user_info, notification_center, TOP_OFFICER_RANKS
+    from caller_entry import caller_entry_dashboard, check_access_permission
+    from modules.data_loader import load_data, preprocess
+    from data_integration import append_caller_entries_to_dataset
+    from modules.analysis import (
+        agg_calls_by_day, agg_calls_by_hour, category_distribution, compute_kpis,
+        interpret_time_series, interpret_hourly_distribution
+    )
+    from modules.mapping import pydeck_points_map, pydeck_heatmap, pydeck_hexbin_3d
+    from modules.festivals_ics import fetch_festivals_from_ics
+    from modules.festivals_utils import filter_significant_festivals
+    from modules.ui_calendar import render_month_calendar
+    from modules.feature_engineering import prepare_features_for_prophet, prepare_features_for_xgboost
+    from modules.predictive_models import (
+        train_prophet_model, predict_with_prophet,
+        train_event_type_model, predict_event_type_distribution,
+        train_peak_hour_model, predict_hourly_calls_for_n_days
+    )
+    from modules.festival_baselines import calculate_weekly_top_n_peaks, get_baseline_for_date
+except ImportError as e:
+    st.error(f"Missing required modules: {e}")
+    st.info("Please ensure all required files are uploaded to your repository.")
+    st.stop()
 
 # Initialize Firebase only once
 if not firebase_admin._apps:
